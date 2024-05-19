@@ -9,20 +9,25 @@ import {
 } from "three/addons/renderers/CSS2DRenderer.js";
 
 import ballImg from "./assets/ball.png";
+import { dataSource } from "./data";
+
 const width = window.innerWidth; //宽度
 const height = window.innerHeight; //高度
+const ROTATIONAL_SPEED = 0.005; //公转速度
 
 const canvasContainer = ref(null);
 const infoContainer = ref(null);
-let scene, camera, renderer, labelRenderer, controls, spriteGroup;
+const infoRef = ref(null);
 let isRotating = true;
+let scene, camera, renderer, labelRenderer, controls, spriteGroup;
 
 //第四步调用渲染函数进行渲染
 function animate(time) {
 	requestAnimationFrame(animate);
 	controls.update();
-	isRotating && spriteGroup.rotateZ(0.01);
+	isRotating && spriteGroup.rotateZ(ROTATIONAL_SPEED);
 	renderer.render(scene, camera);
+	labelRenderer.render(scene, camera);
 }
 
 onMounted(() => {
@@ -30,7 +35,7 @@ onMounted(() => {
 
 	scene = new THREE.Scene();
 	camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-	renderer = new THREE.WebGLRenderer({ antialias: true });
+	renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.setSize(width, height); //设置three.js渲染区域的尺寸(像素px)
 	canvasContainer.value.appendChild(renderer.domElement);
@@ -54,7 +59,9 @@ onMounted(() => {
 	scene.add(new THREE.AxesHelper(150)); // 添加一个xyz坐标轴展示器
 
 	controls = new OrbitControls(camera, renderer.domElement);
-	camera.position.z = 5;
+	camera.position.y = -6;
+	camera.position.z = 0.5
+	camera.lookAt({x:0,y:0,z:0})
 	controls.update();
 	animate(0);
 });
@@ -83,29 +90,42 @@ function getSpriteGroup() {
 		map: colorTexture,
 		transparent: true,
 	});
+
 	const spriteGroup = new THREE.Group();
 	const radius = 4; // 控制圆的半径
-	for (let i = 0; i < 10; i++) {
-		const angle = (i / 10) * Math.PI * 2; // 计算每个精灵的角度位置
+
+	for (let i = 0; i < dataSource.length; i++) {
+		const element = dataSource[i];
+		const angle = (i / dataSource.length) * Math.PI * 2; // 计算每个精灵的角度位置
 		const sprite = new THREE.Sprite(spriteMaterial.clone());
 		sprite.scale.set(0.5, 0.5, 0.5); // 设置精灵大小
-		sprite.position.set(radius * Math.cos(angle), radius * Math.sin(angle), 0); // 根据角度设置位置
+		const x = Math.cos(angle) * radius;
+		const y = Math.sin(angle) * radius;
+		sprite.position.copy(new THREE.Vector3(x, y, 0)); // 根据角度设置位置
+		sprite.meta = element.value; //直接把数据存在对应的精灵对象，方便点击时读取
 		spriteGroup.add(sprite);
+
+		const div = document.createElement("div");
+		div.className = "label";
+		div.textContent = element.name;
+		const label = new CSS2DObject(div);
+		label.position.copy(new THREE.Vector3(x, y, -0.4));
+		spriteGroup.add(label);
 	}
 	return spriteGroup;
 }
 
+let labelContext = null; // 用来保存上一个被点击的小球，初始状态为空
+const currentInfo = ref([]);
 const showInfoBox = (object) => {
-	const infoDiv = document.createElement("div");
-	infoDiv.className = "info-box"; // 自定义样式
-	infoDiv.textContent = `点击的精灵信息：`;
-
-	const label = new CSS2DObject(infoDiv);
-	label.position.copy(object.getWorldPosition(new THREE.Vector3()));
-	object.add(label);
-
-	// 由于CSS2DRenderer不参与动画循环，所以只需一次渲染
-	labelRenderer.render(scene, camera);
+	if (!labelContext) {
+		labelContext = new CSS2DObject(infoRef.value);
+	}
+	const worldPosition = new THREE.Vector3();
+	object.getWorldPosition(worldPosition); //获取被点击对象的坐标，并存到 worldPosition
+	labelContext.position.copy(worldPosition);
+	currentInfo.value = object.meta;
+	scene.add(labelContext);
 };
 
 const onCanvasClick = (event) => {
@@ -131,18 +151,36 @@ const onCanvasClick = (event) => {
 		// 选中模型的第一个模型，设置为红色
 		isRotating = false;
 		showInfoBox(intersects[0].object); // 显示信息框
-		// intersects[0].object.material.color.set(0xff0000);
 	} else {
 		isRotating = true;
-		console.log("xxxxxx");
+		scene.remove(labelContext);
 	}
 };
 </script>
 
 <template>
-	<div ref="canvasContainer" @click="onCanvasClick"></div>
+	<div ref="canvasContainer" @click="onCanvasClick" class="canvas-container"></div>
 	<div ref="infoContainer" class="info-box-container">
+		<div class="info-box" ref="infoRef" >
+			<ul >
+				<li v-for="(item,index) in currentInfo" :key="index">
+				{{ item }}
+				</li>
+			</ul>
+		</div>
 	</div>
 </template>
 
-<style scoped></style>
+<style scoped>
+.canvas-container {
+	background-image: url(./assets/galaxy-background.jpg);
+	background-position: center;
+	background-size: cover;
+}
+.info-box ul{
+	background: rgba(0, 0, 0, 0.432);
+	border: 1px solid aquamarine;
+	/* TODO: 绝对定位实现指数线 */
+
+}
+</style>
